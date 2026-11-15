@@ -5,3 +5,14 @@ services:
       - "${NOTIFICATIONS_PORT}:${NOTIFICATIONS_PORT}"
     environment:
       - PORT=${NOTIFICATIONS_PORT}
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    environment:
+      - PORT=${GATEWAY_PORT}
+      - NOTIFICATIONS_URL=${NOTIFICATIONS_URL}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+    depends_on:
+      - notifications-service
