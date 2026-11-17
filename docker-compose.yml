@@ -1,0 +1,43 @@
+services:
+  cassandra:
+    image: cassandra:4.1
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=drive
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=128M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  notifications-service:
+    build: ./notifications-service
+    ports:
+      - "${NOTIFICATIONS_PORT}:${NOTIFICATIONS_PORT}"
+    environment:
+      - PORT=${NOTIFICATIONS_PORT}
+      - CASSANDRA_HOST=${CASSANDRA_HOST}
+      - CASSANDRA_PORT=${CASSANDRA_PORT}
+      - CASSANDRA_KEYSPACE=${CASSANDRA_KEYSPACE}
+    depends_on:
+      cassandra:
+        condition: service_healthy
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    environment:
+      - PORT=${GATEWAY_PORT}
+      - NOTIFICATIONS_URL=${NOTIFICATIONS_URL}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+    depends_on:
+      - notifications-service
+
+volumes:
+  cassandra-data:
