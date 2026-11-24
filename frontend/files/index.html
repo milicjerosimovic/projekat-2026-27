@@ -1,0 +1,62 @@
+
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moje datoteke</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header>
+        <h1>Moje datoteke</h1>
+
+        <label>ID korisnika:</label>
+    <input id="ownerId" value="6b058e9a58711821e5d68738">
+
+<label>JWT token:</label>
+<input type="password" id="token" placeholder="Unesite JWT token">
+        <button onclick="openRoot()">Prikaži sadržaj</button>
+    </header>
+
+    <div class="layout">
+
+        <aside class="sidebar">
+            <h2>Struktura foldera</h2>
+            <div id="folderTree"></div>
+        </aside>
+
+        <main class="content">
+
+            <div id="breadcrumb">Početni folder</div>
+
+            <h2>Kreiranje foldera</h2>
+            <input id="folderName" placeholder="Naziv foldera">
+            <button onclick="createFolder()">Kreiraj folder</button>
+
+            <h2>Otpremanje datoteke</h2>
+            <input type="file" id="fileInput">
+            <button onclick="uploadFile()">Otpremi</button>
+
+            <hr>
+
+            <button onclick="goBack()">Nazad</button>
+
+            <h2 id="currentFolder">Početni folder</h2>
+
+            <p id="status"></p>
+
+            <h3>Folderi</h3>
+            <ul id="folders"></ul>
+
+            <h3>Datoteke</h3>
+            <ul id="files"></ul>
+
+        </main>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

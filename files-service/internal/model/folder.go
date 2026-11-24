@@ -1,16 +1,16 @@
 package model
 
 import (
-    "time"
+	"time"
 
-    "go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type Folder struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty"`
-	Name      string  `bson:"name"`
-	OwnerID   primitive.ObjectID `bson:"ownerId"`
-	ParentID  *primitive.ObjectID `bson:"parentId"`
-	CreatedAt time.Time `bson:"createdAt"`
-	UpdatedAt time.Time `bson:"upadetedAt"`
+	ID        primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	Name      string              `bson:"name" json:"name"`
+	OwnerID   primitive.ObjectID  `bson:"ownerId" json:"ownerId"`
+	ParentID  *primitive.ObjectID `bson:"parentId" json:parentId,omitempty`
+	CreatedAt time.Time           `bson:"createdAt" json:createdAt`
+	UpdatedAt time.Time           `bson:"updatedAt" json:updatedAt`
 }
