@@ -1,0 +1,115 @@
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #f4f5f7;
+    margin: 0;
+    color: #1f2937;
+}
+
+header {
+    background: white;
+    padding: 20px 30px;
+    border-bottom: 1px solid #ddd;
+}
+
+.layout {
+    display: flex;
+    min-height: 85vh;
+}
+
+.sidebar {
+    width: 280px;
+    background: #e9edf3;
+    padding: 20px;
+    border-right: 1px solid #ddd;
+}
+
+.sidebar h2 {
+    font-size: 18px;
+}
+
+.content {
+    flex: 1;
+    background: white;
+    padding: 30px;
+    margin: 20px;
+    border-radius: 10px;
+}
+
+input {
+    padding: 10px;
+    margin: 5px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+button {
+    padding: 10px 15px;
+    margin: 5px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #1d4ed8;
+}
+
+ul {
+    list-style: none;
+    padding: 0;
+}
+
+li {
+    padding: 12px;
+    margin: 8px 0;
+    background: #f4f5f7;
+    border-radius: 5px;
+}
+
+#status {
+    font-weight: bold;
+    color: #2563eb;
+}
+
+#breadcrumb {
+    background: #e8efff;
+    padding: 15px;
+    border-radius: 5px;
+    color: #2563eb;
+    font-weight: bold;
+    margin-bottom: 25px;
+}
+
+.tree-item {
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+.tree-item:hover {
+    background: #d4dff0;
+}
+
+.tree-children {
+    margin-left: 20px;
+    border-left: 1px solid #b8c2d1;
+    padding-left: 10px;
+}
+
+.tree-item.active {
+    background: #c7d8fa;
+    font-weight: bold;
+}
+
+hr {
+    margin: 25px 0;
+    border: 1px solid #eee;
+}
+
