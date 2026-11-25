@@ -17,13 +17,17 @@ import (
 var (
 	ErrEmailTaken = errors.New("email already registered")
 	ErrNotFound   = errors.New("not found")
+
+	ErrPendingExists    = errors.New("pending quota request exists")
+	ErrAlreadyProcessed = errors.New("quota request already processed")
 )
 
 type Store struct {
-	client  *mongo.Client
-	users   *mongo.Collection
-	tokens  *mongo.Collection
-	revoked *mongo.Collection
+	client    *mongo.Client
+	users     *mongo.Collection
+	tokens    *mongo.Collection
+	revoked   *mongo.Collection
+	quotaReqs *mongo.Collection
 }
 
 func New(ctx context.Context, uri, dbName string, logger *slog.Logger) (*Store, error) {
@@ -53,10 +57,11 @@ func New(ctx context.Context, uri, dbName string, logger *slog.Logger) (*Store, 
 
 	db := client.Database(dbName)
 	s := &Store{
-		client:  client,
-		users:   db.Collection("users"),
-		tokens:  db.Collection("tokens"),
-		revoked: db.Collection("revoked_tokens"),
+		client:    client,
+		users:     db.Collection("users"),
+		tokens:    db.Collection("tokens"),
+		revoked:   db.Collection("revoked_tokens"),
+		quotaReqs: db.Collection("quota_requests"),
 	}
 	if err := s.ensureIndexes(ctx); err != nil {
 		return nil, err
@@ -81,6 +86,15 @@ func (s *Store) ensureIndexes(ctx context.Context) error {
 	if _, err := s.revoked.Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{Keys: bson.D{{Key: "jti", Value: 1}}, Options: options.Index().SetUnique(true)},
 		{Keys: bson.D{{Key: "expiresAt", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)},
+	}); err != nil {
+		return err
+	}
+	if _, err := s.quotaReqs.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "userId", Value: 1}},
+			Options: options.Index().SetUnique(true).SetPartialFilterExpression(bson.M{"status": model.QuotaPending}),
+		},
+		{Keys: bson.D{{Key: "status", Value: 1}, {Key: "createdAt", Value: -1}}},
 	}); err != nil {
 		return err
 	}
@@ -246,4 +260,92 @@ func (s *Store) RevokeJTI(ctx context.Context, jti string, exp time.Time) error 
 func (s *Store) IsRevoked(ctx context.Context, jti string) (bool, error) {
 	n, err := s.revoked.CountDocuments(ctx, bson.M{"jti": jti})
 	return n > 0, err
+}
+
+func (s *Store) UsersPage(ctx context.Context, skip, limit int64) ([]model.User, int64, error) {
+	total, err := s.users.CountDocuments(ctx, bson.M{})
+	if err != nil {
+		return nil, 0, err
+	}
+	cur, err := s.users.Find(ctx, bson.M{},
+		options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}}).SetSkip(skip).SetLimit(limit))
+	if err != nil {
+		return nil, 0, err
+	}
+	var list []model.User
+	if err := cur.All(ctx, &list); err != nil {
+		return nil, 0, err
+	}
+	return list, total, nil
+}
+
+func (s *Store) CreateQuotaRequest(ctx context.Context, q *model.QuotaRequest) error {
+	res, err := s.quotaReqs.InsertOne(ctx, q)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return ErrPendingExists
+		}
+		return err
+	}
+	if id, ok := res.InsertedID.(primitive.ObjectID); ok {
+		q.ID = id
+	}
+	return nil
+}
+
+func (s *Store) QuotaRequests(ctx context.Context, userID primitive.ObjectID, status string) ([]model.QuotaRequest, error) {
+	filter := bson.M{}
+	if !userID.IsZero() {
+		filter["userId"] = userID
+	}
+	if status != "" {
+		filter["status"] = status
+	}
+	cur, err := s.quotaReqs.Find(ctx, filter,
+		options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetLimit(200))
+	if err != nil {
+		return nil, err
+	}
+	var list []model.QuotaRequest
+	if err := cur.All(ctx, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func (s *Store) ResolveQuotaRequest(ctx context.Context, id primitive.ObjectID, approve bool, adminID primitive.ObjectID) (*model.QuotaRequest, error) {
+	status := model.QuotaRejected
+	if approve {
+		status = model.QuotaApproved
+	}
+
+	var q model.QuotaRequest
+	err := s.quotaReqs.FindOneAndUpdate(ctx,
+		bson.M{"_id": id, "status": model.QuotaPending},
+		bson.M{"$set": bson.M{"status": status, "processedAt": time.Now().UTC(), "processedBy": adminID}},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&q)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		n, countErr := s.quotaReqs.CountDocuments(ctx, bson.M{"_id": id})
+		if countErr == nil && n > 0 {
+			return nil, ErrAlreadyProcessed
+		}
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if approve {
+		_, updErr := s.users.UpdateOne(ctx, bson.M{"_id": q.UserID},
+			bson.M{"$max": bson.M{"quotaBytes": q.RequestedBytes}})
+		if updErr != nil {
+			_, _ = s.quotaReqs.UpdateOne(ctx, bson.M{"_id": id}, bson.M{
+				"$set":   bson.M{"status": model.QuotaPending},
+				"$unset": bson.M{"processedAt": "", "processedBy": ""},
+			})
+			return nil, updErr
+		}
+	}
+	return &q, nil
 }
