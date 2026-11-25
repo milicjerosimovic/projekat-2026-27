@@ -15,6 +15,86 @@ services:
       timeout: 10s
       retries: 20
 
+  mongo-users:
+    image: mongo:7
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+    volumes:
+      - mongo-users-data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping')\""]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  mongo-files:
+    image: mongo:7
+    volumes:
+      - mongo-files-data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping')\""]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "8025:8025"
+
+  users-service:
+    build: ./users-service
+    restart: on-failure
+    ports:
+      - "${USERS_PORT}:${USERS_PORT}"
+    environment:
+      - PORT=${USERS_PORT}
+      - MONGO_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo-users:27017/?authSource=admin
+      - MONGO_DB=${USERS_MONGO_DB}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_TTL=${JWT_TTL}
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_USER=
+      - SMTP_PASS=
+      - MAIL_FROM=${MAIL_FROM}
+      - CLIENT_URL=${CLIENT_URL}
+      - DEFAULT_QUOTA_BYTES=${DEFAULT_QUOTA_BYTES}
+      - PASSWORD_MAX_AGE=${PASSWORD_MAX_AGE}
+      - PASSWORD_MIN_AGE=${PASSWORD_MIN_AGE}
+      - CONFIRM_TTL=${CONFIRM_TTL}
+      - OTP_TTL=${OTP_TTL}
+      - RESET_TTL=${RESET_TTL}
+      - MAX_FAILED_LOGINS=${MAX_FAILED_LOGINS}
+      - MAX_OTP_ATTEMPTS=${MAX_OTP_ATTEMPTS}
+      - LOCK_DURATION=${LOCK_DURATION}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    depends_on:
+      mongo-users:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+
+  files-service:
+    build: ./files-service
+    restart: on-failure
+    ports:
+      - "${FILES_PORT}:${FILES_PORT}"
+    environment:
+      - PORT=${FILES_PORT}
+      - MONGO_URI=mongodb://mongo-files:27017
+      - USERS_SERVICE_URL=http://users-service:${USERS_PORT}
+      - STORAGE_DIR=/data/storage
+    volumes:
+      - files-storage:/data/storage
+    depends_on:
+      mongo-files:
+        condition: service_healthy
+      users-service:
+        condition: service_started
+
   notifications-service:
     build: ./notifications-service
     ports:
@@ -38,8 +118,12 @@ services:
       - CORS_ORIGIN=${CORS_ORIGIN}
       - RATE_LIMIT_MAX=${RATE_LIMIT_MAX}
       - RATE_LIMIT_WINDOW_SECONDS=${RATE_LIMIT_WINDOW_SECONDS}
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       - notifications-service
 
 volumes:
   cassandra-data:
+  mongo-users-data:
+  mongo-files-data:
+  files-storage:
