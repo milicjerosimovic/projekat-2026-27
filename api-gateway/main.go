@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -166,6 +169,41 @@ func withAuth(next http.Handler, secret []byte) http.Handler {
 	})
 }
 
+// Files servis očekuje "ownerId". Vrednost uvek uzimamo iz tokena,
+// a ono što klijent pošalje se prepisuje.
+func withOwner(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		owner := r.Header.Get("X-User-Id")
+
+		q := r.URL.Query()
+		q.Set("ownerId", owner)
+		r.URL.RawQuery = q.Encode()
+
+		ct := r.Header.Get("Content-Type")
+		if strings.HasPrefix(ct, "application/json") {
+			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+			if err != nil {
+				http.Error(w, "neispravan zahtev", http.StatusBadRequest)
+				return
+			}
+			if len(bytes.TrimSpace(body)) > 0 {
+				var m map[string]any
+				if err := json.Unmarshal(body, &m); err != nil {
+					http.Error(w, "neispravan zahtev", http.StatusBadRequest)
+					return
+				}
+				m["ownerId"] = owner
+				body, _ = json.Marshal(m)
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			r.ContentLength = int64(len(body))
+			r.Header.Set("Content-Length", strconv.Itoa(len(body)))
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	port := mustEnv("PORT")
 	notificationsURL := mustEnv("NOTIFICATIONS_URL")
@@ -185,7 +223,7 @@ func main() {
 	users := proxyTo(usersURL)
 
 	// Files rute ne znaju za prefiks /api/files, pa ga skidamo.
-	files := withAuth(http.StripPrefix("/api/files", proxyTo(filesURL)), jwtSecret)
+	files := withAuth(withOwner(http.StripPrefix("/api/files", proxyTo(filesURL))), jwtSecret)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
