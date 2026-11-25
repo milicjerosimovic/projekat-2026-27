@@ -51,7 +51,7 @@ func withCORS(next http.Handler, origin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -170,6 +170,8 @@ func main() {
 	port := mustEnv("PORT")
 	notificationsURL := mustEnv("NOTIFICATIONS_URL")
 	corsOrigin := mustEnv("CORS_ORIGIN")
+	usersURL := mustEnv("USERS_URL")
+	filesURL := mustEnv("FILES_URL")
 	rateMax := mustEnvInt("RATE_LIMIT_MAX")
 	rateWindow := time.Duration(mustEnvInt("RATE_LIMIT_WINDOW_SECONDS")) * time.Second
 
@@ -179,6 +181,11 @@ func main() {
 	}
 
 	notifications := withAuth(http.StripPrefix("/api", proxyTo(notificationsURL)), jwtSecret)
+	// Users sam proverava token tamo gde treba (registracija i prijava su javne).
+	users := proxyTo(usersURL)
+
+	// Files rute ne znaju za prefiks /api/files, pa ga skidamo.
+	files := withAuth(http.StripPrefix("/api/files", proxyTo(filesURL)), jwtSecret)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +193,8 @@ func main() {
 	})
 	mux.Handle("/api/notifications", notifications)
 	mux.Handle("/api/notifications/", notifications)
+	mux.Handle("/api/users/", users)
+	mux.Handle("/api/files/", files)
 
 	limiter := newRateLimiter(rateMax, rateWindow)
 	handler := withCORS(withRateLimit(mux, limiter), corsOrigin)
