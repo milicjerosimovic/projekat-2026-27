@@ -1,4 +1,5 @@
 const API_URL = "http://localhost:8080/api";
+const USER_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
 const userInput = document.getElementById("userId");
 const loadBtn = document.getElementById("loadBtn");
@@ -7,8 +8,15 @@ const listEl = document.getElementById("list");
 
 async function loadNotifications() {
   const userId = userInput.value.trim();
-  statusEl.textContent = "Učitavanje...";
   listEl.innerHTML = "";
+
+  if (!USER_ID_PATTERN.test(userId)) {
+    statusEl.textContent =
+      "ID korisnika sme da sadrži samo slova, cifre, crticu i donju crtu (do 64 znaka).";
+    return;
+  }
+
+  statusEl.textContent = "Učitavanje...";
 
   try {
     const response = await fetch(

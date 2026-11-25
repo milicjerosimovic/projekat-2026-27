@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ type Notification struct {
 	Message   string    `json:"message"`
 	CreatedAt time.Time `json:"createdAt"`
 }
+
+var validUserID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 func mustEnv(key string) string {
 	v := os.Getenv(key)
@@ -128,9 +131,15 @@ func main() {
 	})
 
 	http.HandleFunc("/notifications", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "metoda nije dozvoljena", http.StatusMethodNotAllowed)
+			return
+		}
+
 		userID := strings.TrimSpace(r.URL.Query().Get("userId"))
-		if userID == "" || len(userID) > 64 {
-			http.Error(w, "userId je obavezan", http.StatusBadRequest)
+		if !validUserID.MatchString(userID) {
+			log.Println("Neuspela validacija: nevalidan userId")
+			http.Error(w, "userId nije validan", http.StatusBadRequest)
 			return
 		}
 
