@@ -1,11 +1,11 @@
-const API_URL = "http://localhost:8080/api";
+const API_URL = "/api";
 const USER_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
 const userInput = document.getElementById("userId");
 const loadBtn = document.getElementById("loadBtn");
 const statusEl = document.getElementById("status");
 const listEl = document.getElementById("list");
-
+if (!userInput.value) userInput.value = localStorage.getItem("jwtUserId") || "";
 async function loadNotifications() {
   const userId = userInput.value.trim();
   listEl.innerHTML = "";
@@ -19,8 +19,9 @@ async function loadNotifications() {
   statusEl.textContent = "Učitavanje...";
 
   try {
-    const response = await fetch(
-      `${API_URL}/notifications?userId=${encodeURIComponent(userId)}`
+      const response = await fetch(
+      `${API_URL}/notifications?userId=${encodeURIComponent(userId)}`,
+      { headers: { Authorization: "Bearer " + (localStorage.getItem("jwt") || "") } }
     );
     if (!response.ok) {
       throw new Error("Greška servera: " + response.status);

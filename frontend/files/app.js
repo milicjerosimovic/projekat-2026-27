@@ -1,11 +1,11 @@
 
-const API_URL = "";
+const API_URL = "/api/files";
 
 let currentFolderId = null;
 let folderHistory = [];
 
 function getOwnerId() {
-    return document.getElementById("ownerId").value.trim();
+    return document.getElementById("ownerId").value.trim() || localStorage.getItem("jwtUserId") || "";
 }
 
 function showStatus(message) {
@@ -13,7 +13,7 @@ function showStatus(message) {
 }
 
 async function request(path, options = {}) {
-    const token = document.getElementById("token").value.trim();
+    const token = document.getElementById("token").value.trim() || localStorage.getItem("jwt") || "";
 
     const headers = new Headers(options.headers || {});
 

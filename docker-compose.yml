@@ -126,6 +126,18 @@ services:
       - users-service
       - files-service
 
+  frontend:
+    image: nginx:1.27-alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/users:/srv/users:ro
+      - ./frontend/files:/srv/files:ro
+      - ./frontend/notifications:/srv/notifications:ro
+    depends_on:
+      - api-gateway
+
 volumes:
   cassandra-data:
   mongo-users-data:
