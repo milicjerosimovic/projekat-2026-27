@@ -15,6 +15,7 @@ const (
 	TokenConfirm = "confirm"
 	TokenOTP     = "otp"
 	TokenReset   = "reset"
+	TokenMagic   = "magic"
 )
 
 type User struct {
@@ -43,4 +44,21 @@ type OneTimeToken struct {
 	Used      bool               `bson:"used"`
 	ExpiresAt time.Time          `bson:"expiresAt"`
 	CreatedAt time.Time          `bson:"createdAt"`
+}
+
+const (
+	QuotaPending  = "PENDING"
+	QuotaApproved = "APPROVED"
+	QuotaRejected = "REJECTED"
+)
+
+type QuotaRequest struct {
+	ID             primitive.ObjectID `bson:"_id,omitempty"`
+	UserID         primitive.ObjectID `bson:"userId"`
+	UserEmail      string             `bson:"userEmail"`
+	RequestedBytes int64              `bson:"requestedBytes"`
+	Status         string             `bson:"status"`
+	CreatedAt      time.Time          `bson:"createdAt"`
+	ProcessedAt    time.Time          `bson:"processedAt,omitempty"`
+	ProcessedBy    primitive.ObjectID `bson:"processedBy,omitempty"`
 }
