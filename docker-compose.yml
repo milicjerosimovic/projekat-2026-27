@@ -36,6 +36,8 @@ services:
       - PORT=${GATEWAY_PORT}
       - NOTIFICATIONS_URL=${NOTIFICATIONS_URL}
       - CORS_ORIGIN=${CORS_ORIGIN}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX}
+      - RATE_LIMIT_WINDOW_SECONDS=${RATE_LIMIT_WINDOW_SECONDS}
     depends_on:
       - notifications-service
 
