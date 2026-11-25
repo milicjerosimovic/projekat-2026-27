@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -8,8 +11,11 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func mustEnv(key string) string {
@@ -28,6 +34,14 @@ func mustEnvInt(key string) int {
 	return n
 }
 
+func clientIP(r *http.Request) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
 func proxyTo(target string) http.Handler {
 	u, err := url.Parse(target)
 	if err != nil {
@@ -40,7 +54,7 @@ func withCORS(next http.Handler, origin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -49,7 +63,8 @@ func withCORS(next http.Handler, origin string) http.Handler {
 	})
 }
 
-// Ograničenje broja zahteva: najviše `max` zahteva po klijentu u prozoru od `window`.
+// ---------- Ograničenje broja zahteva ----------
+
 type visitor struct {
 	count       int
 	windowStart time.Time
@@ -64,7 +79,6 @@ type rateLimiter struct {
 
 func newRateLimiter(max int, window time.Duration) *rateLimiter {
 	rl := &rateLimiter{visitors: map[string]*visitor{}, max: max, window: window}
-	// Povremeno čistimo stare zapise da memorija ne raste.
 	go func() {
 		for range time.Tick(window) {
 			rl.mu.Lock()
@@ -94,14 +108,7 @@ func (rl *rateLimiter) allow(key string) bool {
 
 func withRateLimit(next http.Handler, rl *rateLimiter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodOptions {
-			next.ServeHTTP(w, r)
-			return
-		}
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			ip = r.RemoteAddr
-		}
+		ip := clientIP(r)
 		if !rl.allow(ip) {
 			log.Println("Ograničenje zahteva: blokiran klijent", ip)
 			w.Header().Set("Retry-After", strconv.Itoa(int(rl.window.Seconds())))
@@ -112,14 +119,111 @@ func withRateLimit(next http.Handler, rl *rateLimiter) http.Handler {
 	})
 }
 
+// ---------- Provera JWT tokena ----------
+
+type tokenClaims struct {
+	Role string `json:"role"`
+	jwt.RegisteredClaims
+}
+
+func parseToken(secret []byte, tokenStr string) (*tokenClaims, bool) {
+	claims := &tokenClaims{}
+	t, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		return secret, nil
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired())
+	if err != nil || !t.Valid || claims.Subject == "" {
+		return nil, false
+	}
+	return claims, true
+}
+
+// Zahtev prolazi samo sa važećim tokenom. ID korisnika uzimamo iz tokena,
+// a sve što klijent sam upiše kao userId se prepisuje.
+func withAuth(next http.Handler, secret []byte) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Klijent ne sme sam da postavlja ova zaglavlja.
+		r.Header.Del("X-User-Id")
+		r.Header.Del("X-User-Role")
+
+		tokenStr, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || tokenStr == "" {
+			log.Println("Neuspela kontrola pristupa: zahtev bez tokena, ip", clientIP(r))
+			http.Error(w, "potrebna je prijava", http.StatusUnauthorized)
+			return
+		}
+
+		claims, valid := parseToken(secret, tokenStr)
+		if !valid {
+			log.Println("Neuspela kontrola pristupa: nevalidan ili istekao token, ip", clientIP(r))
+			http.Error(w, "sesija nije važeća", http.StatusUnauthorized)
+			return
+		}
+
+		q := r.URL.Query()
+		q.Set("userId", claims.Subject)
+		r.URL.RawQuery = q.Encode()
+		r.Header.Set("X-User-Id", claims.Subject)
+		r.Header.Set("X-User-Role", claims.Role)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Files servis očekuje "ownerId". Vrednost uvek uzimamo iz tokena,
+// a ono što klijent pošalje se prepisuje.
+func withOwner(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		owner := r.Header.Get("X-User-Id")
+
+		q := r.URL.Query()
+		q.Set("ownerId", owner)
+		r.URL.RawQuery = q.Encode()
+
+		ct := r.Header.Get("Content-Type")
+		if strings.HasPrefix(ct, "application/json") {
+			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+			if err != nil {
+				http.Error(w, "neispravan zahtev", http.StatusBadRequest)
+				return
+			}
+			if len(bytes.TrimSpace(body)) > 0 {
+				var m map[string]any
+				if err := json.Unmarshal(body, &m); err != nil {
+					http.Error(w, "neispravan zahtev", http.StatusBadRequest)
+					return
+				}
+				m["ownerId"] = owner
+				body, _ = json.Marshal(m)
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			r.ContentLength = int64(len(body))
+			r.Header.Set("Content-Length", strconv.Itoa(len(body)))
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	port := mustEnv("PORT")
 	notificationsURL := mustEnv("NOTIFICATIONS_URL")
 	corsOrigin := mustEnv("CORS_ORIGIN")
+	usersURL := mustEnv("USERS_URL")
+	filesURL := mustEnv("FILES_URL")
 	rateMax := mustEnvInt("RATE_LIMIT_MAX")
 	rateWindow := time.Duration(mustEnvInt("RATE_LIMIT_WINDOW_SECONDS")) * time.Second
 
-	notifications := http.StripPrefix("/api", proxyTo(notificationsURL))
+	jwtSecret := []byte(mustEnv("JWT_SECRET"))
+	if len(jwtSecret) < 32 {
+		log.Fatal("JWT_SECRET je prekratak (najmanje 32 znaka)")
+	}
+
+	notifications := withAuth(http.StripPrefix("/api", proxyTo(notificationsURL)), jwtSecret)
+	// Users sam proverava token tamo gde treba (registracija i prijava su javne).
+	users := proxyTo(usersURL)
+
+	// Files rute ne znaju za prefiks /api/files, pa ga skidamo.
+	files := withAuth(withOwner(http.StripPrefix("/api/files", proxyTo(filesURL))), jwtSecret)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +231,8 @@ func main() {
 	})
 	mux.Handle("/api/notifications", notifications)
 	mux.Handle("/api/notifications/", notifications)
+	mux.Handle("/api/users/", users)
+	mux.Handle("/api/files/", files)
 
 	limiter := newRateLimiter(rateMax, rateWindow)
 	handler := withCORS(withRateLimit(mux, limiter), corsOrigin)
