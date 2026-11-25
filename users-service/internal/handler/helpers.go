@@ -5,7 +5,11 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 )
+
+var trustProxyHeaders bool
 
 type errorBody struct {
 	Code  string `json:"code,omitempty"`
@@ -40,9 +44,28 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 }
 
 func clientIP(r *http.Request) string {
+	if trustProxyHeaders {
+		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ip != nil {
+			return ip.String()
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func queryInt(r *http.Request, key string, def, lo, hi int) int {
+	v, err := strconv.Atoi(r.URL.Query().Get(key))
+	if err != nil {
+		return def
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
