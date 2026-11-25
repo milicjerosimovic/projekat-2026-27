@@ -18,15 +18,26 @@ import (
 )
 
 type Handler struct {
-	cfg    *config.Config
-	store  *store.Store
-	jwt    *security.JWT
-	mailer mail.Mailer
-	log    *slog.Logger
+	cfg         *config.Config
+	store       *store.Store
+	jwt         *security.JWT
+	mailer      mail.Mailer
+	log         *slog.Logger
+	limiter     *rateLimiter
+	authLimiter *rateLimiter
 }
 
 func New(cfg *config.Config, st *store.Store, jwt *security.JWT, mailer mail.Mailer, logger *slog.Logger) *Handler {
-	return &Handler{cfg: cfg, store: st, jwt: jwt, mailer: mailer, log: logger}
+	trustProxyHeaders = cfg.TrustProxy
+	return &Handler{
+		cfg:         cfg,
+		store:       st,
+		jwt:         jwt,
+		mailer:      mailer,
+		log:         logger,
+		limiter:     newRateLimiter(cfg.RateLimitPerMin, cfg.RateLimitWindow),
+		authLimiter: newRateLimiter(cfg.AuthRateLimitPerMin, cfg.RateLimitWindow),
+	}
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -40,10 +51,23 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/users/login/otp", h.verifyOTP)
 	mux.HandleFunc("POST /api/users/password/forgot", h.forgotPassword)
 	mux.HandleFunc("POST /api/users/password/reset", h.resetPassword)
+	mux.HandleFunc("POST /api/users/magic-link/request", h.magicRequest)
+	mux.HandleFunc("POST /api/users/magic-link/login", h.magicLogin)
 
 	mux.Handle("GET /api/users/me", h.auth(http.HandlerFunc(h.me)))
 	mux.Handle("POST /api/users/logout", h.auth(http.HandlerFunc(h.logout)))
 	mux.Handle("POST /api/users/password/change", h.auth(http.HandlerFunc(h.changePassword)))
+
+	mux.Handle("POST /api/users/quota-requests", h.auth(http.HandlerFunc(h.createQuotaRequest)))
+	mux.Handle("GET /api/users/quota-requests", h.auth(http.HandlerFunc(h.myQuotaRequests)))
+
+	admin := func(f http.HandlerFunc) http.Handler {
+		return h.auth(h.requireRole(model.RoleAdmin, f))
+	}
+	mux.Handle("GET /api/users/admin/users", admin(h.adminUsers))
+	mux.Handle("GET /api/users/admin/quota-requests", admin(h.adminQuotaRequests))
+	mux.Handle("POST /api/users/admin/quota-requests/{id}/approve", admin(h.approveQuotaRequest))
+	mux.Handle("POST /api/users/admin/quota-requests/{id}/reject", admin(h.rejectQuotaRequest))
 
 	return h.withMiddleware(mux)
 }

@@ -37,6 +37,12 @@ func (s *statusRecorder) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
+func (h *Handler) tooMany(w http.ResponseWriter, r *http.Request, wait time.Duration) {
+	h.log.Warn("ogranicenje broja zahteva", "path", r.URL.Path, "ip", clientIP(r))
+	w.Header().Set("Retry-After", retryAfterSeconds(wait))
+	writeError(w, http.StatusTooManyRequests, "Previse zahteva, pokusajte kasnije")
+}
+
 func (h *Handler) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -53,6 +59,19 @@ func (h *Handler) withMiddleware(next http.Handler) http.Handler {
 
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
+
+		ip := clientIP(r)
+		if r.Method == http.MethodPost && sensitivePaths[r.URL.Path] {
+			if ok, wait := h.authLimiter.allow(ip + "|" + r.URL.Path); !ok {
+				h.tooMany(rec, r, wait)
+				return
+			}
+		}
+		if ok, wait := h.limiter.allow(ip); !ok {
+			h.tooMany(rec, r, wait)
+			return
+		}
+
 		next.ServeHTTP(rec, r)
 	})
 }
@@ -105,7 +124,28 @@ func (h *Handler) auth(next http.Handler) http.Handler {
 			return
 		}
 
+		if ok, wait := h.limiter.allow("user:" + user.ID.Hex()); !ok {
+			h.tooMany(w, r, wait)
+			return
+		}
+
 		ctx := context.WithValue(r.Context(), ctxKey{}, &authInfo{User: user, Claims: claims})
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (h *Handler) requireRole(role string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := authFrom(r)
+		if info == nil || info.User.Role != role {
+			userID := ""
+			if info != nil {
+				userID = info.User.ID.Hex()
+			}
+			h.log.Warn("neuspeh kontrole pristupa", "userId", userID, "path", r.URL.Path, "ip", clientIP(r))
+			writeError(w, http.StatusForbidden, "Nemate pravo pristupa")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
