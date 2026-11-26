@@ -42,3 +42,5 @@ Aplikacija radi preko HTTPS-a sa razvojnim sertifikatom koji se pravi automatski
 2. Klikni **Proceed to localhost** (**Nastavi na localhost**).
 
 Ako treba novi sertifikat, obriši folder `certs` i ponovo pokreni `docker compose up --build`.
+
+scripts\dodaj-notifikacije.cmd ID_KORISNIKA
