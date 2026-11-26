@@ -1,8 +1,7 @@
 services:
   cassandra:
     image: cassandra:4.1
-    ports:
-      - "9042:9042"
+    
     environment:
       - CASSANDRA_CLUSTER_NAME=drive
       - MAX_HEAP_SIZE=512M
@@ -46,8 +45,7 @@ services:
   users-service:
     build: ./users-service
     restart: on-failure
-    ports:
-      - "${USERS_PORT}:${USERS_PORT}"
+
     environment:
       - PORT=${USERS_PORT}
       - MONGO_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo-users:27017/?authSource=admin
@@ -80,8 +78,7 @@ services:
   files-service:
     build: ./files-service
     restart: on-failure
-    ports:
-      - "${FILES_PORT}:${FILES_PORT}"
+
     environment:
       - PORT=${FILES_PORT}
       - MONGO_URI=mongodb://mongo-files:27017
@@ -97,8 +94,7 @@ services:
 
   notifications-service:
     build: ./notifications-service
-    ports:
-      - "${NOTIFICATIONS_PORT}:${NOTIFICATIONS_PORT}"
+
     environment:
       - PORT=${NOTIFICATIONS_PORT}
       - CASSANDRA_HOST=${CASSANDRA_HOST}
@@ -110,8 +106,7 @@ services:
 
   api-gateway:
     build: ./api-gateway
-    ports:
-      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+
     environment:
       - PORT=${GATEWAY_PORT}
       - NOTIFICATIONS_URL=${NOTIFICATIONS_URL}
