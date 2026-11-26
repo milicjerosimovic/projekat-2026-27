@@ -130,8 +130,10 @@ services:
     image: nginx:1.27-alpine
     ports:
       - "3000:80"
+      - "3443:443"
     volumes:
       - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
       - ./frontend/users:/srv/users:ro
       - ./frontend/files:/srv/files:ro
       - ./frontend/notifications:/srv/notifications:ro
