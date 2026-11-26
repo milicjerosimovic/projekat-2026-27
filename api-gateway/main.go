@@ -106,11 +106,21 @@ func (rl *rateLimiter) allow(key string) bool {
 	return v.count <= rl.max
 }
 
-func withRateLimit(next http.Handler, rl *rateLimiter) http.Handler {
+// Ključ za brojanje: ID korisnika iz tokena ako je prijavljen, inače IP adresa.
+func limitKey(r *http.Request, secret []byte) string {
+	if tokenStr, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && tokenStr != "" {
+		if claims, valid := parseToken(secret, tokenStr); valid {
+			return "user:" + claims.Subject
+		}
+	}
+	return "ip:" + clientIP(r)
+}
+
+func withRateLimit(next http.Handler, rl *rateLimiter, secret []byte) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
-		if !rl.allow(ip) {
-			log.Println("Ograničenje zahteva: blokiran klijent", ip)
+		key := limitKey(r, secret)
+		if !rl.allow(key) {
+			log.Println("Ograničenje zahteva: blokiran klijent", key)
 			w.Header().Set("Retry-After", strconv.Itoa(int(rl.window.Seconds())))
 			http.Error(w, "previše zahteva, pokušajte kasnije", http.StatusTooManyRequests)
 			return
@@ -235,7 +245,7 @@ func main() {
 	mux.Handle("/api/files/", files)
 
 	limiter := newRateLimiter(rateMax, rateWindow)
-	handler := withCORS(withRateLimit(mux, limiter), corsOrigin)
+	handler := withCORS(withRateLimit(mux, limiter, jwtSecret), corsOrigin)
 
 	log.Println("API gateway pokrenut na portu", port)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
