@@ -126,6 +126,19 @@ services:
       - users-service
       - files-service
 
+  cert-init:
+      image: alpine/openssl
+      entrypoint: ["/bin/sh", "-c"]
+      command:
+        - |
+          if [ ! -f /certs/dev.crt ] || [ ! -f /certs/dev.key ]; then
+            echo "Pravim razvojni sertifikat..."
+            openssl req -x509 -newkey rsa:2048 -nodes -keyout /certs/dev.key -out /certs/dev.crt -days 365 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,DNS:api-gateway,IP:127.0.0.1"
+          else
+            echo "Sertifikat vec postoji."
+          fi
+      volumes:
+        - ./certs:/certs
   frontend:
     image: nginx:1.27-alpine
     ports:
@@ -138,7 +151,10 @@ services:
       - ./frontend/files:/srv/files:ro
       - ./frontend/notifications:/srv/notifications:ro
     depends_on:
-      - api-gateway
+      api-gateway:
+        condition: service_started
+      cert-init:
+        condition: service_completed_successfully
 
 volumes:
   cassandra-data:
